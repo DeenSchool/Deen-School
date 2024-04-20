@@ -11,6 +11,7 @@ ConnectDB()
 .then(()=>{
     app.listen(process.env.PORT || 3000 , ()=>{
         console.log(`App is listening on Port ${process.env.PORT}`);
+        console.log("hello world")
     })
 })
 .catch((err)=>{
