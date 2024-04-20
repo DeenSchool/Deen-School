@@ -1,0 +1,12 @@
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,700;1,700&family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap");
+
+.listItems {
+    font-family: "Open Sans", sans-serif;
+    font-size: 14px;
+    color: #273044;
+    padding: 0px 60px 0px 0px;
+  }
+
+  .listText {
+    padding: 0px 0px 0px 30px;
+  }

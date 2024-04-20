@@ -1,7 +1,9 @@
+import WhyChoose from './components/whyChoose/WhyChoose'
+
 function App() {
 
   return (
-<h1>hello world</h1>
+    <WhyChoose />
   )
 }
 
