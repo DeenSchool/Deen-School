@@ -1,5 +1,8 @@
 @import url("https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,700;1,700&family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap");
-
+/* this is a comment */
+*{
+  padding: 0;
+}
 .listItems {
     font-family: "Open Sans", sans-serif;
     font-size: 14px;
