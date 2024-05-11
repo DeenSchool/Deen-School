@@ -1,0 +1,23 @@
+{
+  "name": "deen-school",
+  "version": "1.0.0",
+  "description": "",
+  "main": "run.js",
+  "scripts": {
+   "dev":"node run.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeenSchool/Deen-School.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/DeenSchool/Deen-School/issues"
+  },
+  "homepage": "https://github.com/DeenSchool/Deen-School#readme",
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
