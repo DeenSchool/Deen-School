@@ -20,21 +20,11 @@ app.all("*", (req, res, next) => {
 app.use(globalErrorHandler);
 
 ConnectDB()
-<<<<<<< HEAD:backend/App.js
-.then(()=>{
-    app.listen(process.env.PORT || 3000 , ()=>{
-        console.log(`App is listening on Port ${process.env.PORT}`);
-        console.log("hello world")
-    })
-})
-.catch((err)=>{
-=======
   .then(() => {
     app.listen(process.env.PORT || 3000, () => {
       console.log(`App is listening on Port ${process.env.PORT}`);
     });
   })
   .catch((err) => {
->>>>>>> 6f74d5c1908bae23336be30e42076934431a7ced:backend/src/App.js
     console.log("ERROR IN CONNECTION || CONNECTION FAILED", err);
   });
