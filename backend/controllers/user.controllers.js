@@ -20,46 +20,38 @@ exports.getAllUsers = catchAsync(async (req, res, next) => {
   const users = await User.find();
   res.status(200).json({
     status: "success",
-    data: {
-      users,
-    },
+    data: { users },
   });
 });
 
-let userData;
-
-let otp;
-
 exports.signup = catchAsync(async (req, res, next) => {
   if (req.body.role === "admin") {
-    return next(new AppError("Your are not supposed to signup as Admin", 400));
-  }
-  userData = req.body;
-  const newUser = new User(userData);
-  try {
-    await newUser.validate();
-  } catch (error) {
-    return res.status(400).json({
-      status: "fail",
-      message: error.message,
-    });
+    return next(new AppError("You are not supposed to signup as Admin", 400));
   }
 
-  const user = await User.findOne({ email: req.body.email });
-  if (user) {
+  const userData = { ...req.body, verified: false };
+  const userExists = await User.findOne({ email: req.body.email });
+
+  if (userExists) {
     return res.status(401).json({
       status: "fail",
       message: "User already exists with this email",
     });
   }
 
-  otp = Math.floor(1000 + Math.random() * 9000).toString();
-  const message = `Your one time registration code is "${otp}"`;
-    await sendEmail({
-      email: req.body.email,
-      subject: "Your OTP is valid for 10 minutes",
-      message,
-    });
+  const otp = Math.floor(1000 + Math.random() * 9000).toString();
+  const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
+  userData.otp = otpHash;
+  userData.otpExpiry = Date.now() + 10 * 60 * 1000;
+
+  await User.create(userData);
+
+  const message = `Your one-time registration code is "${otp}". It is valid for 10 minutes.`;
+  await sendEmail({
+    email: req.body.email,
+    subject: "Your OTP is valid for 10 minutes",
+    message,
+  });
 
   res.status(201).json({
     status: "success",
@@ -67,217 +59,210 @@ exports.signup = catchAsync(async (req, res, next) => {
   });
 });
 
-exports.verifyOtp = catchAsync(async (req, res, next) => {
-  if (req.params.otp) {
-    console.log(req.params.otp);
-    const newUser = await User.create(userData);
-
-    const token = signToken(newUser._id);
-    const cookieOptions = {
-      expires: new Date(
-        Date.now() + process.env.JWT_COOKIE_EXPIRES_IN * 24 * 60 * 60 * 1000
-      ),
-      httpOnly: true,
-    };
-
-    if (process.env.NODE_ENV === "production") cookieOptions.secure = true;
-    res.cookie("jwt", token, cookieOptions);
-
-    newUser.password = undefined;
-
-    res.status(201).json({
-      status: "success",
-      token,
-      data: {
-        user: newUser,
-      },
-    });
-  } else {
-    res.status(201).json({
-      status: "Fail",
-      message: "otp mismatchh",
-    });
+exports.verifyAccount = catchAsync(async (req, res, next) => {
+  const { email } = req.body;
+  
+  const user = await User.findOne({ email });
+  
+  if (!user) {
+    return next(new AppError("User not found", 404));
   }
+
+  const otp = Math.floor(1000 + Math.random() * 9000).toString();
+  const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
+  user.otp = otpHash;
+  user.otpExpiry = Date.now() + 10 * 60 * 1000;
+
+  await user.save({validateModifiedOnly:true});
+
+  const message = `Your one-time registration code is "${otp}". It is valid for 10 minutes.`;
+  await sendEmail({
+    email: req.body.email,
+    subject: "Your OTP is valid for 10 minutes",
+    message,
+  });
+
+  res.status(200).json({
+    status: "success",
+    message: "OTP sent successfully",
+  });
+});
+
+
+exports.verifyOtp = catchAsync(async (req, res, next) => {
+  const { email, otp } = req.body;
+  const user = await User.findOne({ email }).select('+otp +otpExpiry');
+
+  if (!user) {
+    return next(new AppError("User not found", 404));
+  }
+
+  const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+
+  if (hashedOtp !== user.otp || user.otpExpiry < Date.now()) {
+    return next(new AppError("OTP is invalid or has expired", 400));
+  }
+
+  user.verified = true;
+  user.otp = undefined;
+  user.otpExpiry = undefined;
+  await user.save({validateModifiedOnly:true});
+
+  const token = signToken(user._id);
+  res.cookie("jwt", token, {
+    expires: new Date(Date.now() + process.env.JWT_COOKIE_EXPIRES_IN * 24 * 60 * 60 * 1000),
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  });
+
+  res.status(201).json({
+    status: "success",
+    token,
+    data: { user },
+  });
 });
 
 exports.getUser = catchAsync(async (req, res, next) => {
   const user = await User.findById(req.user.id);
-  res.status(201).json({
+  res.status(200).json({
     status: "success",
-    data: {
-      user,
-    },
+    data: { user },
   });
 });
 
 exports.updateUser = catchAsync(async (req, res, next) => {
-  if (req.body.password || req.body.password) {
-    return next(
-      new AppError(
-        "this route is not for password updates. please use updatePassword",
-        400
-      )
-    );
+  if (req.body.password || req.body.passwordConfirm) {
+    return next(new AppError("This route is not for password updates. Please use updatePassword.", 400));
   }
 
-  const filteredbody = filterObj(
-    req.body,
-    "name",
-    "email",
-    "address",
-    "isPublic"
-  );
-  if (req.user.photo) {
+  const filteredBody = filterObj(req.body, "firstName", "lastName", "email", "address", "phoneNumber", "photo");
+
+  if (req.file) {
+    filteredBody.photo = req.file.path;
+  }
+
+  if (req.user.photo && req.file) {
     try {
       await unlinkAsync(req.user.photo);
     } catch (err) {
-      console.error(`no photo found`);
+      console.error(`No photo found`);
     }
   }
-  if (req.file) {
-    filteredbody.photo = req.file.path;
-  }
 
-  const user = await User.findByIdAndUpdate(req.user.id, filteredbody, {
+  const user = await User.findByIdAndUpdate(req.user.id, filteredBody, {
     new: true,
     runValidators: true,
   });
 
   res.status(200).json({
     status: "success",
-    data: {
-      user,
-    },
+    data: { user },
   });
 });
 
 exports.deleteUser = catchAsync(async (req, res, next) => {
   if (req.user.role === "user") {
     await User.findByIdAndUpdate(req.user.id, { active: false });
-  }
-  if (req.user.role === "admin") {
+  } else if (req.user.role === "admin") {
     await User.findByIdAndUpdate(req.params.id, { active: false });
   }
-  res.status(204).json({
-    status: "success",
-    data: null,
-  });
+  res.status(204).json({ status: "success", data: null });
 });
 
 exports.loginUser = catchAsync(async (req, res, next) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return next(new AppError("please provide email and password", 400));
+    return next(new AppError("Please provide email and password", 400));
   }
 
-  const user = await User.findOne({ email: email }).select("+password");
+  const user = await User.findOne({ email }).select("+password");
 
   if (!user || !(await user.correctPassword(password, user.password))) {
-    return next(new AppError("incorrect email or password", 401));
+    return next(new AppError("Incorrect email or password", 401));
   }
-  const token = signToken(user._id);
+  if (!user.verified){
+    return next(new AppError("Please verify your account first", 401));
+  }
 
-  res.status(200).json({
-    status: "success",
-    token,
-  });
+  const token = signToken(user._id);
+  res.status(200).json({ status: "success", token });
 });
 
 exports.logout = (req, res) => {
-  res.cookie("jwt", "loggedout", {
-    expires: new Date(Date.now() + 10 * 1000),
+  res.cookie("jwt", "", {
+    expires: new Date(Date.now() - 10 * 1000), 
     httpOnly: true,
+    secure: process.env.NODE_ENV === "production" ? true : false,
   });
   res.status(200).json({ status: "success" });
 };
 
 exports.forgetPassword = catchAsync(async (req, res, next) => {
   const user = await User.findOne({ email: req.body.email });
+
   if (!user) {
-    return next(new AppError("there is no user with this email address", 404));
+    return next(new AppError("There is no user with this email address", 404));
   }
 
   const resetToken = user.createPasswordResetToken();
   await user.save({ validateBeforeSave: false });
 
-  const resetURL = `${req.protocol}://${req.get(
-    "host"
-  )}/api/user/resetPassword/${resetToken}`;
-
-  const message = `forget your password? submit a patch request with your new password and password 
-  confirm to ${resetURL}.\n If you didn't forget your password, please ignore this email!`;
+  const resetURL = `${req.protocol}://${req.get("host")}/api/user/resetPassword/${resetToken}`;
+  const message = `Forgot your password? Submit a PATCH request with your new password and password confirmation to: ${resetURL}.\nIf you didn't forget your password, please ignore this email!`;
 
   try {
     await sendEmail({
       email: user.email,
-      subject: "your password reset token (valid for 10 min)",
+      subject: "Your password reset token (valid for 10 minutes)",
       message,
     });
 
     res.status(200).json({
       status: "success",
-      message: "token send to email!",
+      message: "Token sent to email!",
     });
   } catch (err) {
     user.passwordResetToken = undefined;
-    user.passwordRestExpires = undefined;
+    user.passwordResetExpires = undefined;
     await user.save({ validateBeforeSave: false });
-    return next(
-      new AppError(
-        "there was an error sending the email. try again later!",
-        500
-      )
-    );
+
+    return next(new AppError("There was an error sending the email. Try again later!", 500));
   }
 });
 
 exports.resetPassword = catchAsync(async (req, res, next) => {
-  // get user based on the token
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(req.params.token)
-    .digest("hex");
-
+  const hashedToken = crypto.createHash("sha256").update(req.params.token).digest("hex");
   const user = await User.findOne({
     passwordResetToken: hashedToken,
-    passwordRestExpires: { $gt: Date.now() },
+    passwordResetExpires: { $gt: Date.now() },
   });
-  //if token has not expired,abd there is user, set the new password
+
   if (!user) {
-    return next(new AppError("token is invalid or has expired", 400));
+    return next(new AppError("Token is invalid or has expired", 400));
   }
+
   user.password = req.body.password;
   user.passwordConfirm = req.body.passwordConfirm;
   user.passwordResetToken = undefined;
-  user.passwordRestExpires = undefined;
+  user.passwordResetExpires = undefined;
   await user.save();
-  //update changedPassswordAt property for user
 
-  //log the user in, send jwt
   const token = signToken(user._id);
-
-  res.status(201).json({
-    status: "success",
-    token,
-  });
+  res.status(201).json({ status: "success", token });
 });
 
 exports.updatePassword = catchAsync(async (req, res, next) => {
   const user = await User.findById(req.user.id).select("+password");
+  console.log(req.body);
 
   if (!(await user.correctPassword(req.body.passwordCurrent, user.password))) {
-    return next(new AppError("incorrect password", 401));
+    return next(new AppError("Incorrect password", 401));
   }
-  //if so update password
   user.password = req.body.password;
   user.passwordConfirm = req.body.passwordConfirm;
   await user.save();
 
-  //log user in send jwt
   const token = signToken(user._id);
-  res.status(200).json({
-    status: "success",
-    token,
-  });
+  res.status(200).json({ status: "success", token });
 });

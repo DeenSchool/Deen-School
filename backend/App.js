@@ -2,7 +2,7 @@ const express = require("express");
 const dotenv = require("dotenv");
 const ConnectDB = require( "./db/index.js");
 const cors = require("cors")
-const userRouter = require("./routes/user.routes");
+const userRouter = require("./routes/user.routes.js");
 const globalErrorHandler = require("./controllers/error.controller");
 dotenv.config({ path: "./.env" });
 
@@ -20,6 +20,13 @@ app.all("*", (req, res, next) => {
 app.use(globalErrorHandler);
 
 ConnectDB()
+.then(()=>{
+    app.listen(process.env.PORT || 3000 , ()=>{
+        console.log(`App is listening on Port ${process.env.PORT}`);
+        console.log("hello world")
+    })
+})
+.catch((err)=>{
   .then(() => {
     app.listen(process.env.PORT || 3000, () => {
       console.log(`App is listening on Port ${process.env.PORT}`);
